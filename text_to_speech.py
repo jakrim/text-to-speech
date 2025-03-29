@@ -1,12 +1,4 @@
-from elevenlabs import (
-    generate,
-    play,
-    save,
-    set_api_key,
-    voices,
-    Voice,
-    VoiceSettings,
-)
+from elevenlabs.client import ElevenLabs
 import os
 import argparse
 import json
@@ -26,7 +18,9 @@ class ElevenLabsManager:
         if not self.api_key:
             raise ValueError("API key is required. Set ELEVEN_LABS_API_KEY environment variable or pass it directly.")
 
-        set_api_key(self.api_key)
+        # Initialize the client with API key
+        self.client = ElevenLabs(api_key=self.api_key)
+
         self.base_dir = Path('audio_files')
         self.base_dir.mkdir(exist_ok=True)
 
@@ -45,8 +39,9 @@ class ElevenLabsManager:
     def list_available_voices(self):
         """Get all available voices"""
         try:
-            all_voices = voices()
-            return all_voices
+            # Get voices using the new API
+            voices_response = self.client.voices.get_all()
+            return voices_response.voices
         except Exception as e:
             print(f"Error fetching voices: {str(e)}")
             return []
@@ -59,7 +54,9 @@ class ElevenLabsManager:
                 return voice
         return None
 
-    def generate_audio(self, text, voice_name=None, voice_id=None, output_filename=None, output_dir=None, model="eleven_multilingual_v2", stability=0.5, similarity_boost=0.75, style=0.0):
+    def generate_audio(self, text, voice_name=None, voice_id=None, output_filename=None, output_dir=None,
+                      model="eleven_multilingual_v2", stability=0.5, similarity_boost=0.75,
+                      style=0.0, use_speaker_boost=True):
         """Generate audio from text using specified voice and settings"""
         try:
             # First identify the question at the end before cleaning newlines
@@ -102,22 +99,14 @@ class ElevenLabsManager:
                 # Use higher similarity boost to maintain voice characteristics
                 similarity_boost = 0.85
 
-            # Create voice settings
-            voice_settings = VoiceSettings(
-                stability=stability,
-                similarity_boost=similarity_boost,
-                style=style
-            )
-
             # Determine which voice to use
             if voice_id:
-                # Use voice ID with custom settings
-                selected_voice = Voice(voice_id=voice_id, settings=voice_settings)
+                selected_voice_id = voice_id
             elif voice_name:
-                # Find voice by name and create with custom settings
+                # Find voice by name
                 voice = self.find_voice_by_name(voice_name)
                 if voice:
-                    selected_voice = Voice(voice_id=voice.voice_id, settings=voice_settings)
+                    selected_voice_id = voice.voice_id
                 else:
                     raise ValueError(f"Voice '{voice_name}' not found")
             else:
@@ -125,14 +114,26 @@ class ElevenLabsManager:
                 available_voices = self.list_available_voices()
                 if not available_voices:
                     raise ValueError("No voices available")
-                selected_voice = Voice(voice_id=available_voices[0].voice_id, settings=voice_settings)
+                selected_voice_id = available_voices[0].voice_id
 
-            # Generate the audio with custom voice settings
-            audio = generate(
+            # Generate the audio with custom voice settings using the new API
+            audio_response = self.client.text_to_speech.convert(
                 text=text,
-                voice=selected_voice,
-                model=model
+                voice_id=selected_voice_id,
+                model_id=model,
+                output_format="mp3_44100_128",
+                voice_settings={
+                    "stability": stability,
+                    "similarity_boost": similarity_boost,
+                    "style": style,
+                    "use_speaker_boost": use_speaker_boost
+                }
             )
+
+            # Convert generator to bytes
+            audio_data = b''
+            for chunk in audio_response:
+                audio_data += chunk
 
             # Determine output directory
             if output_dir:
@@ -149,7 +150,8 @@ class ElevenLabsManager:
             else:
                 final_path = output_path / "output.mp3"
 
-            save(audio, str(final_path))
+            with open(str(final_path), "wb") as f:
+                f.write(audio_data)
             print(f"Created: {final_path}")
 
             return str(final_path)
@@ -158,7 +160,8 @@ class ElevenLabsManager:
             print(f"Error generating audio: {str(e)}")
             raise
 
-    def process_text_file(self, file_path, voice_name=None, voice_id=None, upload_to_drive=True, stability=0.5, similarity_boost=0.75, style=0.0):
+    def process_text_file(self, file_path, voice_name=None, voice_id=None, upload_to_drive=True,
+                         stability=0.5, similarity_boost=0.75, style=0.0, use_speaker_boost=True):
         """Process a text file and convert each line to speech.
         Each line represents a complete story, regardless of internal newlines."""
         try:
@@ -196,7 +199,8 @@ class ElevenLabsManager:
                             output_dir=output_dir,
                             stability=stability,
                             similarity_boost=similarity_boost,
-                            style=style
+                            style=style,
+                            use_speaker_boost=use_speaker_boost
                         )
                         generated_files.append(file_path)
                         print(f"Generated file {index}/{len(pieces)}: {filename}")
@@ -261,6 +265,7 @@ def main():
     parser.add_argument('--stability', type=float, default=0.5, help='Voice stability (0.0-1.0). Lower values = more emotional range')
     parser.add_argument('--similarity-boost', type=float, default=0.75, help='Voice similarity boost (0.0-1.0)')
     parser.add_argument('--style', type=float, default=0.0, help='Style exaggeration (0.0-1.0)')
+    parser.add_argument('--no-speaker-boost', action='store_true', help='Disable speaker boost (improves clarity for numbers and complex words)')
 
     args = parser.parse_args()
 
@@ -278,7 +283,8 @@ def main():
             upload_to_drive=not args.no_upload,
             stability=args.stability,
             similarity_boost=args.similarity_boost,
-            style=args.style
+            style=args.style,
+            use_speaker_boost=not args.no_speaker_boost  # Default to True unless --no-speaker-boost flag is used
         )
 
     except Exception as e:

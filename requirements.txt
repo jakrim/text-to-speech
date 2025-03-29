@@ -1,4 +1,4 @@
-elevenlabs==0.2.27
+elevenlabs==1.55.0
 python-dotenv==1.0.0
 google-api-python-client==2.118.0
 google-auth-httplib2==0.2.0
