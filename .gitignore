@@ -31,6 +31,7 @@ token.pickle
 
 # Generated files
 audio_files/
+mentors/
 
 # OS specific files
 .DS_Store
