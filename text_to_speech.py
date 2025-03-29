@@ -62,13 +62,45 @@ class ElevenLabsManager:
     def generate_audio(self, text, voice_name=None, voice_id=None, output_filename=None, output_dir=None, model="eleven_multilingual_v2", stability=0.5, similarity_boost=0.75, style=0.0):
         """Generate audio from text using specified voice and settings"""
         try:
-            # Clean the text by replacing all newline characters
+            # First identify the question at the end before cleaning newlines
+            original_text = text
+
+            # The question is in the last part after the final \n\n
+            parts = original_text.split("\\n\\n")
+            if len(parts) > 1:
+                last_part = parts[-1].strip()
+                # Find the question in the last part
+                if "?" in last_part:
+                    # Get the sentence that ends with a question mark
+                    sentences = re.split(r'(?<=[.!?])\s+', last_part)
+                    for sentence in reversed(sentences):
+                        if sentence.strip().endswith("?"):
+                            question = sentence.strip()
+                            # Remember the question for later formatting
+                            question_to_format = question
+                            break
+
+            # Now clean the text of newlines
             text = text.replace("\\n\\n", " ")  # Replace literal \n\n string
             text = text.replace("\\n", " ")     # Replace literal \n string
             text = text.replace("\n\n", " ")    # Replace actual double newlines
             text = text.replace("\n", " ")      # Replace actual single newlines
             text = re.sub(r'\s+', ' ', text)    # Replace multiple spaces with a single space
             text = text.strip()                 # Remove leading/trailing whitespace
+
+            # Format the identified question
+            if 'question_to_format' in locals() and question_to_format in text:
+                # Add sentence-final punctuation to enhance rising intonation
+                formatted_question = f'; {question_to_format}'  # Semi-colon creates a pause and helps with rising intonation
+
+                # Replace the question in the cleaned text
+                text = text.replace(question_to_format, formatted_question)
+
+                # Use a slightly lower stability for the entire text to allow more expressiveness
+                stability = 0.4  # Balance between consistency and expressiveness
+
+                # Use higher similarity boost to maintain voice characteristics
+                similarity_boost = 0.85
 
             # Create voice settings
             voice_settings = VoiceSettings(
